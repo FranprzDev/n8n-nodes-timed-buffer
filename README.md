@@ -1,32 +1,49 @@
 # n8n-nodes-timed-buffer
 
-Community node for n8n that collects incoming messages into a time-based buffer (Redis-backed) and emits them all at once.
+Community node for n8n that buffers incoming messages in Redis and emits them as a single batch after a time window.
 
-## Problem
+Built for chat-driven workflows (e.g. WhatsApp agents), where each user message triggers its own execution and downstream nodes get spammed with fragments.
 
-Chat and webhook messages arrive fragmented (one execution per message). Downstream AI agents get spammed with partial inputs.
+## How it works
 
-## What it does
+Executions are grouped by `Session Key`. The first message starts a timer (`Wait Amount` + `Wait Unit`); every message arriving inside the window is appended to the Redis-backed buffer.
 
-Groups executions by `sessionKey`, waits `waitAmount` + `waitUnit`, then emits all buffered `content` in a single `Resume` output. Executions arriving mid-window go to `Skipped`.
-
-## Use
-
-1. Install via n8n community nodes.
-2. Set a Redis credential (required).
-3. `Session Key` → conversation id · `Content` → message · `Wait` → e.g. `30 seconds`.
-
-| Output | When |
+| Output | Fires when |
 | --- | --- |
-| `Resume` | Wait elapsed → `[{ data: [...] }]` |
-| `Skipped` | Message arrived during active window → `{}` |
+| `Resume` | Timer elapses — returns `[{ data: [...] }]` with everything buffered |
+| `Skipped` | A message arrived inside an active window — returns `{}` |
 
-Example: 5 WhatsApp messages → 4 `Skipped`, then 1 `Resume` with all 5. See `images/example.png`.
+> [!NOTE]
+> Redis state makes the buffer survive restarts and work across multiple n8n instances. A Redis credential is required.
 
-## Dev
+## Configuration
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| Session Key | string, required | Groups messages into the same buffer (e.g. a conversation id) |
+| Content | string | Data to accumulate |
+| Wait Amount | number | Delay after the last message before emitting |
+| Wait Unit | `seconds` \| `minutes` \| `hours` \| `days` | Time unit for the delay |
+| Redis credential | credential, required | [Redis credential](https://docs.n8n.io/integrations/builtin/credentials/redis/) used for buffer state |
+
+## Example
+
+Chat buffering with a 10-second window (`images/example.png`):
+
+1. Five WhatsApp messages arrive in quick succession.
+2. Four executions exit via **Skipped**.
+3. After 10 s of silence, **Resume** emits all five at once:
+
+```json
+[{ "data": ["Hi!", "How are you?", "What's up?", "Let's meet.", "Bye!"] }]
+```
+
+## Install
+
+Follow the [community nodes installation guide](https://docs.n8n.io/integrations/community-nodes/installation/).
+
+## Develop
 
 ```bash
 npm run build
 ```
-
-MIT.
